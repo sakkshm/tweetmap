@@ -1,59 +1,76 @@
-import asyncio
-import json
-from twikit import Client
-
-'''
-,
-  {
-    "username": "MarcusLee324063",
-    "email": "tweetmap81+tweetmap.extra2@gmail.com",
-    "password": "HeatMap456$"
-  },
-  {
-    "username": "AliceJohns50842",
-    "email": "tweetmap81+tweetmap.extra1@gmail.com",
-    "password": "TestPass123!"
-  }
-'''
-
 """
 TODO: Look into Client setting/params to prevent blocking
 - proxy
 - captcha_solver
 - user_agent
 """
-import time
+
+import asyncio
+import json
+import os
+from twikit import Client
+
+# File path where Twitter account credentials are stored
+ACCOUNTS_FILE = "../account-configs/accounts.json"
+
+# Directory where cookie files will be saved
+COOKIES_DIR = "../account-cookies"
+
 
 async def main():
-    client = Client('en-US')
+    """
+    Main coroutine:
+    - Reads account credentials from JSON
+    - Logs into each account
+    - Saves cookies for session persistence
+    - Logs out safely
+    """
 
     try:
-        with open("../account-configs/accounts.json", "r") as file:
+        with open(ACCOUNTS_FILE, "r") as file:
             data = json.load(file)
 
+            # Ensure cookies directory exists
+            os.makedirs(COOKIES_DIR, exist_ok=True)
+
             for person in data:
+                try:
+                    client = Client('en-US')
 
-                print(person)
-                cookies_path = f"../account-cookies/cookie_{person['username']}.json"
+                    # Path for saving the cookie file for this account
+                    cookies_path = os.path.join(COOKIES_DIR, f"cookie_{person['username']}.json")
 
-                #Create cookie file
-                #open(cookies_path, "w").close()
+                    # Mask password before printing for safety
+                    safe_person = {**person, "password": "***"}
+                    print(f"\nTrying to get cookies for: \n{json.dumps(safe_person, indent=2)}")
 
-                await client.login(
-                    auth_info_1 = person['username'],
-                    auth_info_2 = person['email'],
-                    password = person['password'],
-                    cookies_file = cookies_path
-                )
-                
-                print(f"Cookie generated for {person['username']}")
-                client.save_cookies(cookies_path)
-                print(f"Cookie saved for {person['username']}")
+                    # Skip login if cookie file already exists
+                    if os.path.exists(cookies_path):
+                        print(f"Cookie file already exists for {person['username']}, skipping...")
+                        continue
 
-                await asyncio.sleep(5)
+                    await client.login(
+                        auth_info_1=person['username'],
+                        auth_info_2=person['email'],
+                        password=person['password'],
+                        cookies_file=cookies_path
+                    )
 
-                await client.logout()
-                print(f"{person['username']} logged out!")
+                    print(f"Cookie generated for {person['username']}")
+
+                    # Save cookies to file
+                    client.save_cookies(cookies_path)
+                    print(f"Cookie saved for {person['username']}")
+
+                    # Wait 5 seconds to avoid being rate-limited
+                    await asyncio.sleep(5)
+
+                    await client.logout()
+                    print(f"{person['username']} logged out!\n")
+
+                except Exception as e:
+                    # Catch and print errors specific to this account
+                    print(f"Error handling account {person['username']}: {e}\n")
 
     except FileNotFoundError:
         print("Error: 'accounts.json' not found.")
@@ -63,7 +80,9 @@ async def main():
         print(e)
 
     except Exception as e:
+        # Catch any other unexpected errors
         print(e)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
