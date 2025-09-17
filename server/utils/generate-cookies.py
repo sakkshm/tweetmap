@@ -16,6 +16,8 @@ ACCOUNTS_FILE = "../account-configs/accounts.json"
 # Directory where cookie files will be saved
 COOKIES_DIR = "../account-cookies"
 
+# Waiting time to avoid being rate-limited (sec)
+TIMEOUT_DELAY = 5
 
 async def main():
     """
@@ -62,11 +64,8 @@ async def main():
                     client.save_cookies(cookies_path)
                     print(f"Cookie saved for {person['username']}")
 
-                    # Wait 5 seconds to avoid being rate-limited
-                    await asyncio.sleep(5)
-
-                    await client.logout()
-                    print(f"{person['username']} logged out!\n")
+                    # Wait some time to avoid being rate-limited
+                    await asyncio.sleep(TIMEOUT_DELAY)
 
                 except Exception as e:
                     # Catch and print errors specific to this account
