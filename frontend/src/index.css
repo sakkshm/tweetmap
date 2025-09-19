@@ -1,8 +1,23 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains/JetBrainsMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains/JetBrainsMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
