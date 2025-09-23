@@ -1,156 +1,212 @@
 import asyncio
-import datetime
-import json
+import uuid
 import os
-import random
-from collections import Counter
-from twikit import Client
+from datetime import datetime, timezone
 
-ACCOUNTS_FILE = "./account-configs/accounts.json"
-COOKIES_DIR = "./account-cookies"
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Query
+import html
 
-TARGET_USERNAME = "sakkshm"
-MAX_TWEETS = 500
-PAGE_DELAY = 1.5  # seconds delay between pages
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
+from supabase import create_client, Client
+from dotenv import load_dotenv
 
-async def main():
-    # Load accounts
-    try:
-        with open(ACCOUNTS_FILE, "r") as file:
-            accounts = json.load(file)
+from utils.scrape_tweets import scrape_tweets
 
-    except FileNotFoundError:
-        print("Error: 'accounts.json' not found.")
-        return
-    except json.JSONDecodeError as e:
-        print("Error: Invalid JSON format in 'accounts.json'.")
-        print(e)
-        return
+load_dotenv()
 
-    if not accounts:
-        print("No accounts found in the file.")
-        return
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # service role key
+CACHE_TTL = int(os.getenv("CACHE_TTL", 3600))  # default 1 hour
+WORKER_COUNT = int(os.getenv("WORKER_COUNT", 3))  # default 3 workers
+JOB_TTL = int(os.getenv("JOB_TTL", 3600))  # jobs expire after 1h
+SUPABASE_IMAGE_PUBLIC_BASE = os.getenv("SUPABASE_IMAGE_PUBLIC_BASE") 
 
-    # Pick a random account
-    account = random.choice(accounts)
-    username = account['username']
-    email = account['email']
-    password = account['password']
+TWITTER_BOT_USER_AGENTS = [
+    "Twitterbot",
+]
 
-    # Ensure cookies directory exists
-    os.makedirs(COOKIES_DIR, exist_ok=True)
-    cookies_path = os.path.join(COOKIES_DIR, f"cookie_{username}.json")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
 
-    client = Client('en-US')
+# ---------------- Supabase client ----------------
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    try:
-        print(f"Logging in for {username}")
+async def db_execute(func, *args, **kwargs):
+    """Run blocking supabase call in thread pool to avoid blocking event loop."""
+    return await asyncio.to_thread(func, *args, **kwargs)
 
-        await client.login(
-            auth_info_1=username,
-            auth_info_2=email,
-            password=password,
-            cookies_file=cookies_path
-        )
+# ---------------- FastAPI setup ----------------
+app = FastAPI()
 
-        # Save cookies if file doesn't exist
-        if not os.path.exists(cookies_path):
-            client.save_cookies(cookies_path)
-            print(f"Cookie saved for {username}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-        # --- Check if target user exists ---
+# ---------------- Rate Limiter ----------------
+limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ---------------- Job queue ----------------
+job_queue = asyncio.Queue()
+jobs = {}  # {job_id: {"status": str, "result": dict, "created": datetime}}
+
+async def worker(worker_id: int):
+    """Worker that processes scrape jobs."""
+    while True:
+        job_id, username = await job_queue.get()
+        jobs[job_id]["status"] = "fetching"
+        print(f"[Worker {worker_id}] Processing job {job_id} for {username}")
+        
         try:
-            user = await client.get_user_by_screen_name(TARGET_USERNAME)
-        except Exception as e:
-            print(f"User '{TARGET_USERNAME}' does not exist or could not be fetched.")
-            print(f"Error: {e}")
-            return
-
-        if not user:
-            print(f"User '{TARGET_USERNAME}' not found.")
-            return
-
-        print(f"Getting tweets for {TARGET_USERNAME}")
-
-        tweets_timestamp = []
-        count = 0
-
-        # --- Define cutoff date (6 months ago, UTC) ---
-        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=6 * 30)
-
-        # Fetch initial page
-        tweets_page = await user.get_tweets(tweet_type='Tweets', count=50)
-
-        while tweets_page and count < MAX_TWEETS:
-            for tweet in tweets_page:
-                ts = tweet.created_at_datetime.astimezone(datetime.timezone.utc)
-
-                # Skip tweets older than 6 months
-                if ts < cutoff_date:
-                    print(f"Stopping at tweet older than 6 months: {ts.isoformat()}")
-                    tweets_page = None
-                    break
-
-                tweets_timestamp.append(ts)
-                count += 1
-
-                if count >= MAX_TWEETS:
-                    break
-
-            # Fetch next page if exists
-            if tweets_page and hasattr(tweets_page, 'next') and tweets_page.next:
-                await asyncio.sleep(PAGE_DELAY)
-                tweets_page = await tweets_page.next()
+            result = await scrape_tweets(username)
+        
+            if result.get("error"):
+                jobs[job_id]["status"] = "error"
+                jobs[job_id]["result"] = {"error": result.get("error")}
             else:
-                break
+                await db_execute(
+                    supabase.table("tweet_results")
+                    .upsert(
+                        {
+                            "username": username,
+                            "result": result,
+                            "last_updated": datetime.now(timezone.utc).isoformat()
+                        },
+                        on_conflict="username" 
+                    ).execute
+                )
+        
+                jobs[job_id]["status"] = "done"
+                jobs[job_id]["result"] = result
+        
+        except Exception as e:
+            print(f"[Worker {worker_id}] Error: {e}")
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["result"] = {"error": str(e)}
+        
+        finally:
+            job_queue.task_done()
 
-        # Convert timestamps to dates
-        dates = [ts.date() for ts in tweets_timestamp]
+async def cleanup_jobs():
+    """Periodically remove old jobs to prevent memory bloat."""
+    while True:
+        now = datetime.now(timezone.utc)
+        expired = [job_id for job_id, data in jobs.items()
+                   if (now - data["created"]).total_seconds() > JOB_TTL]
+        for job_id in expired:
+            jobs.pop(job_id, None)
+            print(f"Cleaned up expired job {job_id}")
+        await asyncio.sleep(60)  # check every minute
 
-        # Count occurrences per date
-        date_counts = Counter(dates)
+@app.on_event("startup")
+async def startup_event():
+    # Start multiple workers
+    for i in range(WORKER_COUNT):
+        asyncio.create_task(worker(i + 1))
+    # Start cleanup task
+    asyncio.create_task(cleanup_jobs())
+    print(f"Started {WORKER_COUNT} workers and cleanup task")
 
-        print("\nTweets per day:")
-        for date, c in date_counts.items():
-            print(f"{date}: {c}")
+# ---------------- API Endpoints ----------------
+@app.get("/")
+@limiter.limit("10/minute")
+def read_root(request: Request):
+    return {"message": "Server Running!"}
 
-        # Extract user info
-        x_username = user.screen_name
-        name = user.name
-        profile = user.profile_image_url
-        tweet_count = user.statuses_count
-        is_verified = user.is_blue_verified
-        created_at = user.created_at_datetime
-        has_default_profile_image = user.default_profile_image
+@app.post("/fetch/{username}")
+@limiter.limit("10/minute")
+async def fetch(username: str, request: Request):
+    # Check Supabase cache
+    response = await db_execute(
+        supabase.table("tweet_results").select("*").eq("username", username).execute
+    )
+    existing = response.data[0] if response.data else None
 
-        # --- Find start_date & end_date in UTC ---
-        if tweets_timestamp:
-            start_date = min(tweets_timestamp)
-        else:
-            start_date = None
+    if existing:
+        last_updated = datetime.fromisoformat(existing["last_updated"])
+        if last_updated.tzinfo is None:
+            last_updated = last_updated.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - last_updated).total_seconds()
+        if age < CACHE_TTL:
+            return {"job_id": None, "cached": True, "fresh": True, "result": existing["result"]}
 
-        end_date = datetime.datetime.now(datetime.timezone.utc)
+        # Cached but stale
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {"status": "queued", "result": None, "created": datetime.now(timezone.utc)}
+        await job_queue.put((job_id, username))
+        return {"job_id": job_id, "cached": True, "fresh": False, "result": existing["result"]}
 
-        user_info = {
-            "username": x_username,
-            "name": name,
-            "profile": profile,
-            "tweet_count": tweet_count,
-            "is_verified": is_verified,
-            "created_at": created_at,
-            "has_default_profile_image": has_default_profile_image,
-            "start_date": start_date.isoformat() if start_date else None,
-            "end_date": end_date.isoformat()
-        }
+    # Not cached: new scrape
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "queued", "result": None, "created": datetime.now(timezone.utc)}
+    await job_queue.put((job_id, username))
+    return {"job_id": job_id, "cached": False, "fresh": False}
 
-        print(user_info)
+@app.get("/status/{job_id}")
+@limiter.limit("30/minute")
+async def status(job_id: str, request: Request):
+    return jobs.get(job_id, {"error": "Invalid job id"})
 
-        print(f"\nFetched {len(tweets_timestamp)} tweets for {TARGET_USERNAME}")
+@app.get("/result/{job_id}")
+@limiter.limit("10/minute")
+async def result(job_id: str, request: Request):
+    job = jobs.get(job_id)
+    if not job:
+        return {"error": "Invalid job id"}
+    if job["status"] != "done":
+        return {"status": job["status"]}
+    return job["result"]
 
-    except Exception as e:
-        print(f"Error: {e}")
+@app.get("/share/{username}", response_class=HTMLResponse)
+async def share_heatmap(request: Request, username: str):
+    # Construct the image URL from the username
+    image_url = f"{SUPABASE_IMAGE_PUBLIC_BASE}/{username}.png"
+    safe_url = html.escape(image_url, quote=True)
 
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>@{username}'s Heatmap</title>
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        <!-- Tailwind CDN -->
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        <!-- Twitter Card -->
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="@{username}'s Heatmap">
+        <meta name="twitter:description" content="Generated a heatmap of my tweets!">
+        <meta name="twitter:image" content="{safe_url}">
+
+        <!-- Open Graph -->
+        <meta property="og:title" content="@{username}'s Heatmap">
+        <meta property="og:description" content="Generated a heatmap of my tweets!">
+        <meta property="og:image" content="{safe_url}">
+    </head>
+    <main class="flex justify-center items-center flex-1 p-4 overflow-hidden">
+        <div class="bg-white p-8 rounded shadow h-auto w-auto p-16 pt-6 text-center">
+            <img src="{safe_url}" alt="Heatmap" class="w-full h-screen rounded mb-4" />
+
+            <!-- Generate Your Own Button -->
+            <a href="https://tweetmap.sakkshm.me" class="inline-block mt-4 px-6 py-2 bg-blue-500 text-white font-semibold rounded hover:bg-blue-600">
+                Generate Your Own
+            </a>
+        </div>
+    </main>
+
+    </html>
+    """
+    return HTMLResponse(content=html_content)

@@ -1,3 +1,6 @@
 venv
-account-configs/accounts.json
+account-configs
 account-cookies
+__pycache__
+
+.env

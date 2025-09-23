@@ -17,15 +17,14 @@ ACCOUNTS_FILE = "../account-configs/accounts.json"
 COOKIES_DIR = "../account-cookies"
 
 # Waiting time to avoid being rate-limited (sec)
-TIMEOUT_DELAY = 5
+TIMEOUT_DELAY = 60
 
 async def main():
     """
     Main coroutine:
     - Reads account credentials from JSON
-    - Logs into each account
-    - Saves cookies for session persistence
-    - Logs out safely
+    - Logs into using cookies (iff cookie exists)
+    - Logs out to invalidate cookies
     """
 
     try:
@@ -37,6 +36,9 @@ async def main():
 
             for person in data:
                 try:
+                    if person['status'] != 'active':
+                        raise Exception("Account either banned or not implemented")
+
                     client = Client('en-US')
 
                     # Path for saving the cookie file for this account
@@ -46,9 +48,9 @@ async def main():
                     safe_person = {**person, "password": "***"}
                     print(f"\nTrying to get cookies for: \n{json.dumps(safe_person, indent=2)}")
 
-                    # Skip login if cookie file already exists
-                    if os.path.exists(cookies_path):
-                        print(f"Cookie file already exists for {person['username']}, skipping...")
+                    # Skip login as no cookie file exists
+                    if not os.path.exists(cookies_path):
+                        print(f"Cookie file does not exist for {person['username']}, skipping...")
                         continue
 
                     await client.login(
@@ -58,14 +60,10 @@ async def main():
                         cookies_file=cookies_path
                     )
 
-                    print(f"Cookie generated for {person['username']}")
-
-                    # Save cookies to file
-                    client.save_cookies(cookies_path)
-                    print(f"Cookie saved for {person['username']}")
-
                     # Wait some time to avoid being rate-limited
                     await asyncio.sleep(TIMEOUT_DELAY)
+
+                    await client.logout()
 
                 except Exception as e:
                     # Catch and print errors specific to this account
