@@ -13,6 +13,7 @@
     "@fontsource/jetbrains-mono": "^5.2.7",
     "@hugocxl/react-to-image": "^0.0.9",
     "@radix-ui/react-slot": "^1.2.3",
+    "@supabase/supabase-js": "^2.57.4",
     "@tailwindcss/vite": "^4.1.13",
     "@uiw/react-heat-map": "^2.3.3",
     "@uiw/react-tooltip": "^4.22.3",
