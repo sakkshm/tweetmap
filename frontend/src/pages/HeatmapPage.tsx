@@ -363,7 +363,7 @@ function HeatmapPage() {
                   startDate={startDate}
                   endDate={endDate}
                   legendRender={(props) => <rect {...props} />}
-                  panelColors={{ 1: "#F0F2F5", 2: "#CBD4DB", 3: "#AAB8C2", 4: "#1D9BF0", 5: "#075fa6"}}
+                  panelColors={[ "#F0F2F5", "#CBD4DB", "#AAB8C2", "#1D9BF0", "#075fa6"]}
                 />
               </div>
               <div className="text-xs mt-6 text-right text-gray-500">Made using @Tweet_Map_</div>

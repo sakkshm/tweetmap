@@ -1,4 +1,5 @@
 import asyncio
+import time
 import uuid
 import os
 from datetime import datetime, timezone
@@ -168,10 +169,12 @@ async def result(job_id: str, request: Request):
         return {"status": job["status"]}
     return job["result"]
 
+
 @app.get("/share/{username}", response_class=HTMLResponse)
 async def share_heatmap(request: Request, username: str):
-    # Construct the image URL from the username
-    image_url = f"{SUPABASE_IMAGE_PUBLIC_BASE}/{username}.png"
+    # Construct a public-friendly URL with cache buster
+    timestamp = int(time.time())
+    image_url = f"{SUPABASE_IMAGE_PUBLIC_BASE}/{username}.png?v={timestamp}"
     safe_url = html.escape(image_url, quote=True)
 
     html_content = f"""
@@ -179,11 +182,7 @@ async def share_heatmap(request: Request, username: str):
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>@{username}'s Heatmap</title>
-
-        <!-- Tailwind CDN -->
-        <script src="https://cdn.tailwindcss.com"></script>
 
         <!-- Twitter Card -->
         <meta name="twitter:card" content="summary_large_image">
@@ -196,17 +195,33 @@ async def share_heatmap(request: Request, username: str):
         <meta property="og:description" content="Generated a heatmap of my tweets!">
         <meta property="og:image" content="{safe_url}">
     </head>
-    <main class="flex justify-center items-center flex-1 p-4 overflow-hidden">
-        <div class="bg-white p-8 rounded shadow h-auto w-auto p-16 pt-6 text-center">
-            <img src="{safe_url}" alt="Heatmap" class="w-full h-screen rounded mb-4" />
+    <body style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:100vh; text-align:center; font-family:Arial, sans-serif; background: #f5f7fa; color:#333; padding:20px;">
 
-            <!-- Generate Your Own Button -->
-            <a href="https://tweetmap.sakkshm.me" class="inline-block mt-4 px-6 py-2 bg-blue-500 text-white font-semibold rounded hover:bg-blue-600">
+        <h1 style="font-size:2.5rem; margin-bottom:20px;">@{username}'s Heatmap</h1>
+
+        <img src="{safe_url}" alt="Heatmap for {username}" 
+            style="max-width:90%; height:auto; border-radius:15px; box-shadow:0 8px 20px rgba(0,0,0,0.2); margin-bottom:30px;">
+
+        <a href="https://tweetmap.sakkshm.me" style="text-decoration:none;">
+            <button style="
+                padding:15px 30px; 
+                font-size:1.2rem; 
+                font-weight:bold; 
+                color:white; 
+                background:  #2575fc;
+                border:none; 
+                border-radius:50px; 
+                cursor:pointer; 
+                transition: all 0.3s ease;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            " 
+            onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 10px 25px rgba(0,0,0,0.3)';" 
+            onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 5px 15px rgba(0,0,0,0.2)';">
                 Generate Your Own
-            </a>
-        </div>
-    </main>
+            </button>
+        </a>
 
+    </body>
     </html>
     """
     return HTMLResponse(content=html_content)
