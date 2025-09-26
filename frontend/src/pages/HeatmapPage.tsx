@@ -320,6 +320,9 @@ function HeatmapPage() {
               <div className="text-sm text-gray-500 mt-2 whitespace-pre-wrap">
                 {errorMessage}
               </div>
+            <div className="mt-6">
+              <Button onClick={() => window.location.reload()}>Retry</Button>
+            </div>
             </div>
           </div>
         </div>
