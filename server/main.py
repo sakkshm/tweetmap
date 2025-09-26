@@ -2,12 +2,12 @@ import asyncio
 import time
 import uuid
 import os
+import base64
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi import Query
+from fastapi.responses import HTMLResponse
 import html
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -26,11 +26,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # service role key
 CACHE_TTL = int(os.getenv("CACHE_TTL", 3600))  # default 1 hour
 WORKER_COUNT = int(os.getenv("WORKER_COUNT", 3))  # default 3 workers
 JOB_TTL = int(os.getenv("JOB_TTL", 3600))  # jobs expire after 1h
-SUPABASE_IMAGE_PUBLIC_BASE = os.getenv("SUPABASE_IMAGE_PUBLIC_BASE") 
-
-TWITTER_BOT_USER_AGENTS = [
-    "Twitterbot",
-]
+SUPABASE_IMAGE_PUBLIC_BASE = os.getenv("SUPABASE_IMAGE_PUBLIC_BASE")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
@@ -168,6 +164,64 @@ async def result(job_id: str, request: Request):
     if job["status"] != "done":
         return {"status": job["status"]}
     return job["result"]
+
+# ---------------- Heatmap Upload ----------------
+@app.post("/upload/{username}")
+@limiter.limit("3/minute")
+async def upload_heatmap(
+    request: Request,
+    username: str,
+    file: UploadFile = File(None),
+    data_url: str = Form(None)
+):
+    """
+    Uploads heatmap PNG for a given username to Supabase Storage.
+    Re-upload only if file doesn't exist or is older than CACHE_TTL.
+    """
+    try:
+        storage = supabase.storage.from_("heatmaps")
+        filename = f"heatmaps/{username}.png"
+
+        # List files in the bucket
+        files = await db_execute(storage.list, path="heatmaps")  # returns list of dicts
+
+        # Check if file exists and is fresh
+        existing_file = next((f for f in files if f["name"] == f"{username}.png"), None)
+        now_ts = datetime.now(timezone.utc).timestamp()
+        if existing_file:
+            updated_at = datetime.fromisoformat(existing_file["updated_at"].replace("Z", "+00:00")).timestamp()
+            age = now_ts - updated_at
+            if age < CACHE_TTL:
+                public_url_data = storage.get_public_url(filename)
+                return {"url": public_url_data}
+
+        # Read file contents
+        if file:
+            f_bytes = await file.read()
+        elif data_url:
+            if "," in data_url:
+                _, encoded = data_url.split(",", 1)
+            else:
+                encoded = data_url
+            f_bytes = base64.b64decode(encoded)
+        else:
+            return {"error": "No file or data_url provided"}
+
+        supabase.storage.from_("heatmaps").upload(
+            file=f_bytes, 
+            path=filename, 
+            file_options={
+                "cache-control": "3600", 
+                "upsert": "true",
+                "content-type": "image/png"
+            }
+        )
+
+        public_url_data = storage.get_public_url(filename)
+        return {"url": public_url_data}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/share/{username}", response_class=HTMLResponse)

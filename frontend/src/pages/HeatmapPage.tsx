@@ -5,15 +5,8 @@ import { CheckCircle, Circle, XCircle } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToPng } from "@hugocxl/react-to-image";
-import { createClient } from "@supabase/supabase-js";
 
 const SERVER_URL = import.meta.env.VITE_PUBLIC_SERVER_URL;
-
-// ---------------- Supabase Client ----------------
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL!,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!
-);
 
 // SVG rect props for the heatmap cells
 const rectProps: React.SVGProps<SVGRectElement> = { rx: 3, stroke: "#fff" };
@@ -62,40 +55,31 @@ function dataURLtoBlob(dataUrl: string): Blob {
 // ---------------- Supabase upload ----------------
 async function uploadToSupabase(username: string, dataUrl: string) {
   try {
-    const filename = `heatmaps/${username}.png`;
+    const formData = new FormData();
+    formData.append("data_url", dataUrl);
 
-    // Check if file already exists
-    const { data: existing, error: listError } = await supabase.storage
-      .from("heatmaps")
-      .list("heatmaps", { search: `${username}.png` });
-    if (listError) throw listError;
+    const response = await fetch(`${SERVER_URL}/upload/${username}`, {
+      method: "POST",
+      body: formData,
+    });
 
-    if (existing && existing.length > 0) {
-      console.log("Heatmap already exists in Supabase!");
-    } else {
-      const blob = dataURLtoBlob(dataUrl);
-
-      const { error: uploadError } = await supabase.storage
-        .from("heatmaps")
-        .upload(filename, blob, { upsert: true });
-
-      if (uploadError) throw uploadError;
-      console.log("Heatmap uploaded successfully!");
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status}`);
     }
 
-    // Get public URL for sharing
-    const { data: publicUrlData } = supabase
-      .storage
-      .from("heatmaps")
-      .getPublicUrl(filename);
+    const json = await response.json();
 
-    return publicUrlData?.publicUrl || null;
+    if (json.error) throw new Error(json.error);
+
+    // Return the public URL from FastAPI
+    return json.url || null;
   } catch (err) {
     console.error("Upload error:", err);
     alert("Failed to upload heatmap");
     return null;
   }
 }
+
 
 // ---------------- Share on Twitter (X) ----------------
 async function shareOnTwitter(username: string | null, dataUrl: string | null) {
@@ -422,3 +406,5 @@ function HeatmapPage() {
 }
 
 export default HeatmapPage;
+
+
