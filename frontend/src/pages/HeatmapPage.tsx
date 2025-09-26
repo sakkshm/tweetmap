@@ -35,23 +35,6 @@ const LOADING_STATUSES: string[] = [
   "Generating Heatmap...",
 ];
 
-// Convert base64 dataURL to Blob for uploading
-function dataURLtoBlob(dataUrl: string): Blob {
-  const [header, base64] = dataUrl.split(",");
-  if (!base64) throw new Error("Invalid data URL");
-
-  const mimeMatch = header.match(/:(.*?);/);
-  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-
-  const binary = atob(base64.replace(/\s/g, ""));
-  const array = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    array[i] = binary.charCodeAt(i);
-  }
-
-  return new Blob([array], { type: mime });
-}
-
 // ---------------- Supabase upload ----------------
 async function uploadToSupabase(username: string, dataUrl: string) {
   try {
