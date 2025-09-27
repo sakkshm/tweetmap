@@ -69,6 +69,7 @@ async def main():
                     # Save cookies to file
                     client.save_cookies(cookies_path)
                     print(f"Cookie saved for {person['username']}")
+                    print(f"Waiting {TIMEOUT_DELAY} sec.")
 
                     # Wait some time to avoid being rate-limited
                     await asyncio.sleep(TIMEOUT_DELAY)
