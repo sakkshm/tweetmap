@@ -43,7 +43,6 @@ React + Vite (frontend)  -->  FastAPI (backend)  -->  Supabase (DB + Storage)
 * **Rate control**: up to `MAX_TWEETS` (default 500), with random delays (`PAGE_DELAY_RANGE`) to mimic human activity.
 * **Async execution**: uses `asyncio` with FastAPI’s event loop for non-blocking scraping and delays.
 * **Collected data**:
-
   * `tweets_per_day`: daily tweet counts.
   * `user_info`: metadata (profile image, verified status, tweet count, created_at, etc.).
 * **Cutoff**: restricts scraping to past 180 days for heatmap relevance.
