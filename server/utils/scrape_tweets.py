@@ -10,8 +10,8 @@ from twikit import Client
 # ---------------- Paths ----------------
 # Base paths for configs and cookies
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ACCOUNTS_FILE = os.path.join(BASE_DIR, "account-configs", "accounts.json")  # Account config JSON
-COOKIES_DIR = os.path.join(BASE_DIR, "account-cookies")  # Directory to save cookies
+ACCOUNTS_FILE = os.path.join(BASE_DIR, "../account-configs", "accounts.json")  # Account config JSON
+COOKIES_DIR = os.path.join(BASE_DIR, "../account-cookies")  # Directory to save cookies
 
 # ---------------- Scraper Settings ----------------
 MAX_TWEETS = 500  # Max tweets to fetch for a given target
