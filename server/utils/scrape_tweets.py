@@ -160,7 +160,7 @@ async def scrape_tweets(target_username: str):
             "username": user.screen_name,
             "name": user.name,
             "profile": user.profile_image_url,
-            "tweet_count": user.statuses_count,
+            "tweet_count": count,
             "is_verified": user.is_blue_verified,
             "created_at": user.created_at_datetime.isoformat(),
             "has_default_profile_image": user.default_profile_image,
