@@ -313,7 +313,7 @@ function HeatmapPage() {
                       </div>
                     </div>
                     <div className="mr-8 text-right">
-                      <div className="font-semibold">{userInfo.tweet_count} Tweets</div>
+                      <div className="font-bold">{userInfo.tweet_count} Tweets</div>
                       <div className="mt-1 text-xs">
                         since {new Date(userInfo.start_date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
                       </div>
