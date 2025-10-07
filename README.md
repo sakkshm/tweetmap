@@ -4,7 +4,7 @@ TweetMap lets you visualize your Twitter/X activity as a GitHub-style heatmap.
 
 It scrapes your tweets, processes them into daily counts, and renders them as an interactive heatmap. You can download your heatmap as a PNG or share it publicly with Twitter/X.
 
-Demo Video: [https://tweetmap.sakkshm.me](https://youtu.be/8U8RCc7iNV4)
+[Demo Video](https://youtu.be/8U8RCc7iNV4)
 
 ## Features
 
